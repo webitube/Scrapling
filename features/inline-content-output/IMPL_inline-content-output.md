@@ -15,7 +15,7 @@ When both flags are `true`, `return_inline` takes precedence and a note is inclu
 
 - **Default:** `INLINE_MAX_SIZE = 10240` bytes (10 KB)
 - **Configurable:** Set via `SCRAPLING_INLINE_MAX_SIZE` environment variable
-- **Note:** `return_inline=true` always returns content inline regardless of size. The size threshold is reserved for future use (e.g., MCP framework-level response limits).
+- **Behavior:** The size threshold applies to the default mode (no flags set). When content exceeds `INLINE_MAX_SIZE`, the response is automatically written to a temporary file. Setting `return_inline=true` bypasses this limit and always returns content inline regardless of size.
 
 ### File Extension Mapping
 
@@ -65,7 +65,7 @@ This adds friction, extra tool calls, and cognitive overhead — especially duri
 |--------|-------------|
 | **Added imports** | `os` and `make_temp_file` for temporary file creation |
 | **Added `INLINE_MAX_SIZE` import** | Imported from `scrapling.core.shell` |
-| **Rewrote `_translate_response()`** | Now handles three modes: default (content parts list), `return_inline` (inline string, no size limit), and `write_raw_file` (plain file write with path in response) |
+| **Rewrote `_translate_response()`** | Now handles three modes: default (size-checked — inline if under `INLINE_MAX_SIZE`, auto-fallback to file if over), `return_inline` (always inline, no size limit), and `write_raw_file` (plain file write with path in response) |
 | **Updated `get()`** | Added `return_inline` and `write_raw_file` params, forwarded to `bulk_get()` |
 | **Updated `bulk_get()`** | Added params, forwarded to `_translate_response()` |
 | **Updated `fetch()`** | Added params, forwarded to `bulk_fetch()` |
@@ -96,7 +96,7 @@ This adds friction, extra tool calls, and cognitive overhead — especially duri
 
 | Test Class | Tests |
 |------------|-------|
-| `TestTranslateResponseInline` | Tests `_translate_response()` for default, inline small content, inline large content (no fallback), raw file writing, and both-flags precedence |
+| `TestTranslateResponseInline` | Tests `_translate_response()` for default small content (inline), default large content (auto-fallback to file), inline small content, inline large content (no fallback), raw file writing, and both-flags precedence |
 | `TestMCPServerMethodSignatures` | Verifies all 6 MCP methods accept new params with correct defaults (`False`) |
 | `TestShellSignatures` | Verifies all 3 signature dicts include new params |
 
@@ -160,6 +160,6 @@ scrapling mcp
 ## Backward Compatibility
 
 - All new parameters default to `false`
-- Default behavior (no flags set) is identical to pre-feature code
-- Existing callers see zero changes
+- Default behavior (no flags set) now includes a size-based auto-fallback: content under `INLINE_MAX_SIZE` is returned inline as before, content over the threshold is written to a temporary file
+- Existing callers see zero changes for small responses
 - No API surface was removed or renamed
