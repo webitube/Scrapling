@@ -12,6 +12,7 @@ This document covers all DevOps-related tasks for the Scrapling project: CI/CD p
 - [Docker Build & Push](#docker-build--push)
 - [Release & PyPI Publish](#release--pypi-publish)
 - [Documentation Deployment](#documentation-deployment)
+- [MCP Server](#mcp-server)
 - [Pre-commit Hooks](#pre-commit-hooks)
 - [Local Development Commands](#local-development-commands)
 - [Troubleshooting](#troubleshooting)
@@ -257,10 +258,146 @@ zensical build
 # Output is in the 'site/' directory
 ```
 
-### Configuration File
+### Configuration Files
 
 - `.readthedocs.yaml` — RTD build configuration
 - `zensical.toml` — Zensical site configuration
+
+---
+
+## MCP Server
+
+The MCP (Model Context Protocol) server exposes Scrapling's web scraping tools to AI clients like Claude Desktop, Cursor, or any MCP-compatible interface.
+
+### Install
+
+```bash
+# Install MCP dependencies
+pip install "scrapling[ai]"
+
+# Install browser dependencies
+scrapling install
+```
+
+### Run via CLI
+
+```bash
+# Stdio transport (default, for AI clients)
+scrapling mcp
+
+# HTTP transport (for web-based clients)
+scrapling mcp --http
+```
+
+### Run Programmatically
+
+```python
+from scrapling.core.ai import ScraplingMCPServer
+
+server = ScraplingMCPServer()
+
+# Stdio transport
+server.serve(http=False)
+
+# HTTP transport
+server.serve(http=True, host="0.0.0.0", port=8000)
+```
+
+### Run via Docker
+
+```bash
+# Stdio transport
+docker run --rm pyd4vinci/scrapling mcp
+
+# HTTP transport (port 8000)
+docker run --rm -p 8000:8000 pyd4vinci/scrapling mcp --http
+```
+
+### Configure in an AI Client
+
+**Claude Desktop** — add to `claude_desktop_config.json`:
+```json
+{
+  "mcpServers": {
+    "scrapling": {
+      "command": "python",
+      "args": ["-m", "scrapling", "mcp"]
+    }
+  }
+}
+```
+
+**HTTP-based clients** — point to `http://localhost:8000`.
+
+### Configure with mcp-proxy
+
+mcp-proxy allows you to run multiple MCP servers from a single configuration file.
+
+**Stdio transport** (recommended for AI clients):
+```json
+{
+  "servers": {
+    "scrapling": {
+      "command": "scrapling",
+      "args": ["mcp"],
+      "env": {}
+    }
+  }
+}
+```
+
+**HTTP transport**:
+```json
+{
+  "servers": {
+    "scrapling": {
+      "command": "scrapling",
+      "args": ["mcp", "--http", "--host", "0.0.0.0", "--port", "8000"],
+      "env": {}
+    }
+  }
+}
+```
+
+**MCP Proxy**
+```json
+{
+    "mcpServers": {
+		"scrapling": {
+		  "command": "scrapling",
+		  "args": ["mcp"],
+		  "env": {}
+		},
+    }
+}
+```
+
+Launch with:
+```bash
+mcp-proxy --config config.json
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `get` | Fast HTTP requests with browser impersonation |
+| `bulk_get` | Async parallel HTTP requests |
+| `fetch` | Dynamic content via Chromium/Chrome |
+| `bulk_fetch` | Async parallel browser fetches |
+| `stealthy_fetch` | Bypass Cloudflare and anti-bot systems |
+| `bulk_stealthy_fetch` | Async parallel stealth fetches |
+| `screenshot` | Capture PNG/JPEG screenshots |
+| `open_session` | Create persistent browser sessions |
+| `close_session` | Close browser sessions |
+| `list_sessions` | List active sessions |
+
+### Configuration Files
+
+- `scrapling/core/ai.py` — MCP server implementation
+- `scrapling/cli.py` — CLI entry point (`scrapling mcp`)
+- `docs/ai/mcp-server.md` — Full MCP documentation
+- `docs/api-reference/mcp-server.md` — API reference
 
 ---
 

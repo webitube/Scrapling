@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "scrapling": {
+      "command": "scrapling",
+      "args": ["mcp"],
+      "env": {}
+    }
+  }
+}
