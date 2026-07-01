@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import os
 from sys import stderr
 from copy import deepcopy
 from functools import wraps
@@ -83,7 +84,8 @@ _ZWC_PATTERN = re_compile(r"[\u200b\u200c\u200d\ufeff\u2060\u180e]")
 
 # Maximum size in bytes for inline content return.
 # When return_inline=True but content exceeds this threshold, auto-fallback to file output with a warning.
-INLINE_MAX_SIZE = 10240
+# Can be overridden via SCRAPLING_INLINE_MAX_SIZE environment variable.
+INLINE_MAX_SIZE = int(os.environ.get("SCRAPLING_INLINE_MAX_SIZE", 10240))
 
 # Suppress exit on error to handle parsing errors gracefully
 class NoExitArgumentParser(ArgumentParser):  # pragma: no cover

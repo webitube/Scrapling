@@ -44,8 +44,8 @@ class TestTranslateResponseInline:
             assert result.url == "http://example.com"
 
     def test_translate_response_return_inline_small_content(self, mock_page):
-        """Test return_inline with content under size limit"""
-        small_content = "# Small Content\nThis is small content under the limit."
+        """Test return_inline returns content directly regardless of size"""
+        small_content = "# Small Content\nThis is small content."
         with patch.object(Convertor, '_extract_content') as mock_extract:
             mock_extract.return_value = iter([small_content, ""])
             result = _translate_response(
@@ -60,8 +60,8 @@ class TestTranslateResponseInline:
             assert len(result.content) == 1
             assert small_content in result.content[0]
 
-    def test_translate_response_return_inline_large_content_fallback(self, mock_page):
-        """Test return_inline with content over size limit triggers fallback"""
+    def test_translate_response_return_inline_large_content_no_fallback(self, mock_page):
+        """Test return_inline returns content directly even when it exceeds INLINE_MAX_SIZE"""
         large_content = "# Large Content\n" + "x" * (INLINE_MAX_SIZE + 1000)
         with patch.object(Convertor, '_extract_content') as mock_extract:
             mock_extract.return_value = iter([large_content, ""])
@@ -74,8 +74,9 @@ class TestTranslateResponseInline:
                 write_raw_file=False,
             )
             assert isinstance(result, ResponseModel)
-            assert "exceeds inline size limit" in result.content[0].lower()
-            assert "written to:" in result.content[0].lower()
+            assert len(result.content) == 1
+            assert large_content in result.content[0]
+            # No fallback to file — return_inline always returns inline
 
     def test_translate_response_write_raw_file(self, mock_page):
         """Test write_raw_file creates a file"""

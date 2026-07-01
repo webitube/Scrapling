@@ -89,8 +89,7 @@ def _translate_response(
     :param css_selector: Optional CSS selector to extract specific content.
     :param main_content_only: Whether to extract only the main content of the page.
     :param return_inline: When True, returns extracted content directly in the response
-        instead of writing to a file. If content exceeds INLINE_MAX_SIZE bytes,
-        auto-fallback to file output occurs with a warning message.
+        regardless of size. No file is written.
     :param write_raw_file: When True, writes extracted content as a plain file
         (matching the extraction type extension) instead of a JSON wrapper.
         File extensions: .md for markdown, .txt for text, .html for html.
@@ -109,22 +108,10 @@ def _translate_response(
     raw_content = "".join(content_parts)
     response_content: List[str]
 
-    # Handle return_inline mode
+    # Handle return_inline mode — always inline, no size limit
     if return_inline:
-        # If both flags are True, prefer inline with a note
         note = "" if not write_raw_file else "Note: write_raw_file was ignored because return_inline takes precedence."
-        content_bytes = raw_content.encode("utf-8")
-        if len(content_bytes) > INLINE_MAX_SIZE:
-            # Auto-fallback to file output
-            fd, filepath = make_temp_file(suffix=".md", prefix="scrapling_inline_fallback_")
-            try:
-                os.write(fd, content_bytes)
-            finally:
-                os.close(fd)
-            fallback_msg = f"Content exceeds inline size limit ({INLINE_MAX_SIZE} bytes). Written to: {filepath}"
-            response_content = [note + fallback_msg if note else fallback_msg]
-        else:
-            response_content = [note + raw_content if note else raw_content]
+        response_content = [note + raw_content if note else raw_content]
 
     # Handle write_raw_file mode (only if not return_inline)
     elif write_raw_file:
