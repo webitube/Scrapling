@@ -27,8 +27,8 @@ class TestTranslateResponseInline:
         mock.url = "http://example.com"
         return mock
 
-    def test_translate_response_default(self, mock_page):
-        """Test default behavior without inline flags"""
+    def test_translate_response_default_small_content(self, mock_page):
+        """Test default behavior with small content returns inline"""
         with patch.object(Convertor, '_extract_content') as mock_extract:
             mock_extract.return_value = iter(["# Hello World", ""])
             result = _translate_response(
@@ -42,6 +42,23 @@ class TestTranslateResponseInline:
             assert isinstance(result, ResponseModel)
             assert result.status == 200
             assert result.url == "http://example.com"
+
+    def test_translate_response_default_large_content_fallback(self, mock_page):
+        """Test default behavior with large content falls back to file"""
+        large_content = "# Large Content\n" + "x" * (INLINE_MAX_SIZE + 1000)
+        with patch.object(Convertor, '_extract_content') as mock_extract:
+            mock_extract.return_value = iter([large_content, ""])
+            result = _translate_response(
+                mock_page,
+                extraction_type="markdown",
+                css_selector=None,
+                main_content_only=True,
+                return_inline=False,
+                write_raw_file=False,
+            )
+            assert isinstance(result, ResponseModel)
+            assert "exceeds inline size limit" in result.content[0].lower()
+            assert "written to:" in result.content[0].lower()
 
     def test_translate_response_return_inline_small_content(self, mock_page):
         """Test return_inline returns content directly regardless of size"""

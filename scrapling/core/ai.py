@@ -125,8 +125,17 @@ def _translate_response(
         response_content = [f"Content written to: {filepath}"]
 
     else:
-        # Default behavior: return content parts as list
-        response_content = content_parts
+        # Default behavior: check size threshold, fallback to file if too large
+        content_bytes = raw_content.encode("utf-8")
+        if len(content_bytes) > INLINE_MAX_SIZE:
+            fd, filepath = make_temp_file(suffix=".md", prefix="scrapling_content_")
+            try:
+                os.write(fd, content_bytes)
+            finally:
+                os.close(fd)
+            response_content = [f"Content exceeds inline size limit ({INLINE_MAX_SIZE} bytes). Written to: {filepath}"]
+        else:
+            response_content = content_parts
 
     return ResponseModel(status=page.status, content=response_content, url=page.url)
 
