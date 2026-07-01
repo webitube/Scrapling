@@ -2,12 +2,14 @@ from uuid import uuid4
 from asyncio import gather
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
+from tempfile import mkstemp as make_temp_file
+import os
 
 from mcp.server.fastmcp import FastMCP, Image
 from mcp.types import ImageContent, TextContent
 from pydantic import BaseModel, Field
 
-from scrapling.core.shell import Convertor
+from scrapling.core.shell import Convertor, INLINE_MAX_SIZE
 from scrapling.engines.toolbelt.custom import Response as _ScraplingResponse
 from scrapling.engines.static import ImpersonateType
 from scrapling.fetchers import (
@@ -77,17 +79,69 @@ def _translate_response(
     extraction_type: extraction_types,
     css_selector: Optional[str],
     main_content_only: bool,
+    return_inline: bool = False,
+    write_raw_file: bool = False,
 ) -> ResponseModel:
-    """Extract content from a response and translate it to a ResponseModel."""
-    content = list(
+    """Extract content from a response and translate it to a ResponseModel.
+
+    :param page: The response page to extract content from.
+    :param extraction_type: The type of content to extract (markdown, html, text).
+    :param css_selector: Optional CSS selector to extract specific content.
+    :param main_content_only: Whether to extract only the main content of the page.
+    :param return_inline: When True, returns extracted content directly in the response
+        instead of writing to a file. If content exceeds INLINE_MAX_SIZE bytes,
+        auto-fallback to file output occurs with a warning message.
+    :param write_raw_file: When True, writes extracted content as a plain file
+        (matching the extraction type extension) instead of a JSON wrapper.
+        File extensions: .md for markdown, .txt for text, .html for html.
+    :note: If both return_inline and write_raw_file are True, return_inline takes precedence.
+    """
+    content_parts = list(
         Convertor._extract_content(
             page,
             css_selector=css_selector,
             extraction_type=extraction_type,
             main_content_only=main_content_only,
+            return_inline=return_inline,
+            write_raw_file=write_raw_file,
         )
     )
-    return ResponseModel(status=page.status, content=content, url=page.url)
+    raw_content = "".join(content_parts)
+    response_content: List[str]
+
+    # Handle return_inline mode
+    if return_inline:
+        # If both flags are True, prefer inline with a note
+        note = "" if not write_raw_file else "Note: write_raw_file was ignored because return_inline takes precedence."
+        content_bytes = raw_content.encode("utf-8")
+        if len(content_bytes) > INLINE_MAX_SIZE:
+            # Auto-fallback to file output
+            fd, filepath = make_temp_file(suffix=".md", prefix="scrapling_inline_fallback_")
+            try:
+                os.write(fd, content_bytes)
+            finally:
+                os.close(fd)
+            fallback_msg = f"Content exceeds inline size limit ({INLINE_MAX_SIZE} bytes). Written to: {filepath}"
+            response_content = [note + fallback_msg if note else fallback_msg]
+        else:
+            response_content = [note + raw_content if note else raw_content]
+
+    # Handle write_raw_file mode (only if not return_inline)
+    elif write_raw_file:
+        ext_map = {"markdown": ".md", "html": ".html", "text": ".txt"}
+        ext = ext_map.get(extraction_type, ".md")
+        fd, filepath = make_temp_file(suffix=ext, prefix=f"scrapling_raw_{extraction_type}_")
+        try:
+            os.write(fd, raw_content.encode("utf-8"))
+        finally:
+            os.close(fd)
+        response_content = [f"Content written to: {filepath}"]
+
+    else:
+        # Default behavior: return content parts as list
+        response_content = content_parts
+
+    return ResponseModel(status=page.status, content=response_content, url=page.url)
 
 
 def _normalize_credentials(credentials: Optional[Dict[str, str]]) -> Optional[Tuple[str, str]]:
@@ -346,6 +400,8 @@ class ScraplingMCPServer:
         verify: Optional[bool] = True,
         http3: Optional[bool] = False,
         stealthy_headers: Optional[bool] = True,
+        return_inline: bool = False,
+        write_raw_file: bool = False,
     ) -> ResponseModel:
         """Make GET HTTP request to a URL and return a structured output of the result.
         Note: This is only suitable for low-mid protection levels. For high-protection levels or websites that require JS loading, use the other tools directly.
@@ -375,6 +431,8 @@ class ScraplingMCPServer:
         :param verify: Whether to verify HTTPS certificates.
         :param http3: Whether to use HTTP3. Defaults to False. It might be problematic if used it with `impersonate`.
         :param stealthy_headers: If enabled (default), it creates and adds real browser headers. It also sets a Google referer header.
+        :param return_inline: When True, returns extracted content directly in the response instead of writing to a file.
+        :param write_raw_file: When True, writes extracted content as a plain file instead of a JSON wrapper.
         """
         results = await ScraplingMCPServer.bulk_get(
             urls=[url],
@@ -396,6 +454,8 @@ class ScraplingMCPServer:
             verify=verify,
             http3=http3,
             stealthy_headers=stealthy_headers,
+            return_inline=return_inline,
+            write_raw_file=write_raw_file,
         )
         return results[0]
 
@@ -420,6 +480,8 @@ class ScraplingMCPServer:
         verify: Optional[bool] = True,
         http3: Optional[bool] = False,
         stealthy_headers: Optional[bool] = True,
+        return_inline: bool = False,
+        write_raw_file: bool = False,
     ) -> List[ResponseModel]:
         """Make GET HTTP request to a group of URLs and for each URL, return a structured output of the result.
         Note: This is only suitable for low-mid protection levels. For high-protection levels or websites that require JS loading, use the other tools directly.
@@ -449,6 +511,8 @@ class ScraplingMCPServer:
         :param verify: Whether to verify HTTPS certificates.
         :param http3: Whether to use HTTP3. Defaults to False. It might be problematic if used it with `impersonate`.
         :param stealthy_headers: If enabled (default), it creates and adds real browser headers. It also sets a Google referer header.
+        :param return_inline: When True, returns extracted content directly in the response instead of writing to a file.
+        :param write_raw_file: When True, writes extracted content as a plain file instead of a JSON wrapper.
         """
         normalized_proxy_auth = _normalize_credentials(proxy_auth)
         normalized_auth = _normalize_credentials(auth)
@@ -476,7 +540,7 @@ class ScraplingMCPServer:
                 for url in urls
             ]
             responses = await gather(*tasks)
-            return [_translate_response(page, extraction_type, css_selector, main_content_only) for page in responses]
+            return [_translate_response(page, extraction_type, css_selector, main_content_only, return_inline, write_raw_file) for page in responses]
 
     async def fetch(
         self,
@@ -501,6 +565,8 @@ class ScraplingMCPServer:
         network_idle: bool = False,
         wait_selector_state: SelectorWaitStates = "attached",
         session_id: Optional[str] = None,
+        return_inline: bool = False,
+        write_raw_file: bool = False,
     ) -> ResponseModel:
         """Use playwright to open a browser to fetch a URL and return a structured output of the result.
         Note: This is only suitable for low-mid protection levels.
@@ -534,6 +600,8 @@ class ScraplingMCPServer:
         :param extra_headers: A dictionary of extra headers to add to the request. _The referer set by `google_search` takes priority over the referer set here if used together._
         :param proxy: The proxy to be used with requests, it can be a string or a dictionary with the keys 'server', 'username', and 'password' only.
         :param session_id: Optional session ID from open_session. If provided, reuses the existing browser session instead of creating a new one.
+        :param return_inline: When True, returns extracted content directly in the response instead of writing to a file.
+        :param write_raw_file: When True, writes extracted content as a plain file instead of a JSON wrapper.
         """
         results = await self.bulk_fetch(
             urls=[url],
@@ -557,6 +625,8 @@ class ScraplingMCPServer:
             network_idle=network_idle,
             wait_selector_state=wait_selector_state,
             session_id=session_id,
+            return_inline=return_inline,
+            write_raw_file=write_raw_file,
         )
         return results[0]
 
@@ -583,6 +653,8 @@ class ScraplingMCPServer:
         network_idle: bool = False,
         wait_selector_state: SelectorWaitStates = "attached",
         session_id: Optional[str] = None,
+        return_inline: bool = False,
+        write_raw_file: bool = False,
     ) -> List[ResponseModel]:
         """Use playwright to open a browser, then fetch a group of URLs at the same time, and for each page return a structured output of the result.
         Note: This is only suitable for low-mid protection levels.
@@ -616,6 +688,8 @@ class ScraplingMCPServer:
         :param extra_headers: A dictionary of extra headers to add to the request. _The referer set by `google_search` takes priority over the referer set here if used together._
         :param proxy: The proxy to be used with requests, it can be a string or a dictionary with the keys 'server', 'username', and 'password' only.
         :param session_id: Optional session ID from open_session. If provided, reuses the existing browser session instead of creating a new one.
+        :param return_inline: When True, returns extracted content directly in the response instead of writing to a file.
+        :param write_raw_file: When True, writes extracted content as a plain file instead of a JSON wrapper.
         """
         if session_id:
             entry = self._get_session(session_id, "dynamic")
@@ -659,7 +733,7 @@ class ScraplingMCPServer:
                 tasks = [session.fetch(url) for url in urls]
                 responses = await gather(*tasks)
 
-        return [_translate_response(page, extraction_type, css_selector, main_content_only) for page in responses]
+        return [_translate_response(page, extraction_type, css_selector, main_content_only, return_inline, write_raw_file) for page in responses]
 
     async def stealthy_fetch(
         self,
@@ -689,6 +763,8 @@ class ScraplingMCPServer:
         solve_cloudflare: bool = False,
         additional_args: Optional[Dict] = None,
         session_id: Optional[str] = None,
+        return_inline: bool = False,
+        write_raw_file: bool = False,
     ) -> ResponseModel:
         """Use the stealthy fetcher to fetch a URL and return a structured output of the result.
         Note: This is the only suitable fetcher for high protection levels.
@@ -727,6 +803,8 @@ class ScraplingMCPServer:
         :param proxy: The proxy to be used with requests, it can be a string or a dictionary with the keys 'server', 'username', and 'password' only.
         :param additional_args: Additional arguments to be passed to Playwright's context as additional settings, and it takes higher priority than Scrapling's settings.
         :param session_id: Optional session ID from open_session. If provided, reuses the existing browser session instead of creating a new one.
+        :param return_inline: When True, returns extracted content directly in the response instead of writing to a file.
+        :param write_raw_file: When True, writes extracted content as a plain file instead of a JSON wrapper.
         """
         results = await self.bulk_stealthy_fetch(
             urls=[url],
@@ -755,6 +833,8 @@ class ScraplingMCPServer:
             solve_cloudflare=solve_cloudflare,
             additional_args=additional_args,
             session_id=session_id,
+            return_inline=return_inline,
+            write_raw_file=write_raw_file,
         )
         return results[0]
 
@@ -786,6 +866,8 @@ class ScraplingMCPServer:
         solve_cloudflare: bool = False,
         additional_args: Optional[Dict] = None,
         session_id: Optional[str] = None,
+        return_inline: bool = False,
+        write_raw_file: bool = False,
     ) -> List[ResponseModel]:
         """Use the stealthy fetcher to fetch a group of URLs at the same time, and for each page return a structured output of the result.
         Note: This is the only suitable fetcher for high protection levels.
@@ -824,6 +906,8 @@ class ScraplingMCPServer:
         :param proxy: The proxy to be used with requests, it can be a string or a dictionary with the keys 'server', 'username', and 'password' only.
         :param additional_args: Additional arguments to be passed to Playwright's context as additional settings, and it takes higher priority than Scrapling's settings.
         :param session_id: Optional session ID from open_session. If provided, reuses the existing browser session instead of creating a new one.
+        :param return_inline: When True, returns extracted content directly in the response instead of writing to a file.
+        :param write_raw_file: When True, writes extracted content as a plain file instead of a JSON wrapper.
         """
         if session_id:
             entry = self._get_session(session_id, "stealthy")
@@ -872,7 +956,7 @@ class ScraplingMCPServer:
                 tasks = [session.fetch(url) for url in urls]
                 responses = await gather(*tasks)
 
-        return [_translate_response(page, extraction_type, css_selector, main_content_only) for page in responses]
+        return [_translate_response(page, extraction_type, css_selector, main_content_only, return_inline, write_raw_file) for page in responses]
 
     def serve(self, http: bool, host: str, port: int):
         """Serve the MCP server."""

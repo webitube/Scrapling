@@ -33,6 +33,8 @@ _REQUESTS_PARAMS = {
     "verify": Optional[bool],
     "cert": Optional[str | Tuple[str, str]],
     "selector_config": Optional[Dict],
+    "return_inline": Optional[bool],
+    "write_raw_file": Optional[bool],
 }
 
 _FETCH_PARAMS = {
@@ -67,6 +69,8 @@ _FETCH_PARAMS = {
     "capture_xhr": str | None,
     "executable_path": Optional[str],
     "dns_over_https": bool,
+    "return_inline": Optional[bool],
+    "write_raw_file": Optional[bool],
 }
 
 _STEALTHY_FETCH_PARAMS = {
@@ -105,6 +109,8 @@ _STEALTHY_FETCH_PARAMS = {
     "hide_canvas": bool,
     "block_webrtc": bool,
     "solve_cloudflare": bool,
+    "return_inline": Optional[bool],
+    "write_raw_file": Optional[bool],
 }
 
 # Mapping of function names to their parameter definitions

@@ -81,6 +81,9 @@ _HIDDEN_XPATH = XPath(
 )
 _ZWC_PATTERN = re_compile(r"[\u200b\u200c\u200d\ufeff\u2060\u180e]")
 
+# Maximum size in bytes for inline content return.
+# When return_inline=True but content exceeds this threshold, auto-fallback to file output with a warning.
+INLINE_MAX_SIZE = 10240
 
 # Suppress exit on error to handle parsing errors gracefully
 class NoExitArgumentParser(ArgumentParser):  # pragma: no cover
@@ -618,8 +621,23 @@ class Convertor:
         extraction_type: extraction_types = "markdown",
         css_selector: Optional[str] = None,
         main_content_only: bool = False,
+        return_inline: bool = False,
+        write_raw_file: bool = False,
     ) -> Generator[str, None, None]:
-        """Extract the content of a Selector"""
+        """Extract the content of a Selector.
+
+        :param page: The Selector to extract content from.
+        :param extraction_type: The type of content to extract (markdown, html, text).
+        :param css_selector: Optional CSS selector to extract specific content.
+        :param main_content_only: Whether to extract only the main content of the page.
+        :param return_inline: When True, returns extracted content directly in the response
+            instead of writing to a file. If content exceeds INLINE_MAX_SIZE bytes,
+            auto-fallback to file output occurs with a warning message.
+        :param write_raw_file: When True, writes extracted content as a plain file
+            (matching the extraction type extension) instead of a JSON wrapper.
+            File extensions: .md for markdown, .txt for text, .html for html.
+        :note: If both return_inline and write_raw_file are True, return_inline takes precedence.
+        """
         if not page or not isinstance(page, Selector):  # pragma: no cover
             raise TypeError("Input must be of type `Selector`")
         elif not extraction_type or extraction_type not in cls._extension_map.values():
@@ -654,9 +672,23 @@ class Convertor:
 
     @classmethod
     def write_content_to_file(
-        cls, page: Selector, filename: str, css_selector: Optional[str] = None, main_content_only: bool = False
+        cls,
+        page: Selector,
+        filename: str,
+        css_selector: Optional[str] = None,
+        main_content_only: bool = False,
+        write_raw_file: bool = False,
     ) -> None:
-        """Write a Selector's content to a file"""
+        """Write a Selector's content to a file.
+
+        :param page: The Selector to extract content from.
+        :param filename: The output filename (must end with .md, .html, or .txt).
+        :param css_selector: Optional CSS selector to extract specific content.
+        :param main_content_only: Whether to extract only the main content of the page.
+        :param write_raw_file: When True, writes raw extracted content directly to the file
+            without any JSON wrapper. The file extension is determined by the extraction type
+            derived from the filename extension (.md for markdown, .txt for text, .html for html).
+        """
         if not page or not isinstance(page, Selector):  # pragma: no cover
             raise TypeError("Input must be of type `Selector`")
         elif not filename or not isinstance(filename, str) or not filename.strip():

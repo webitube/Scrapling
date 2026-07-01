@@ -108,3 +108,4 @@ output/*/index.html
 docs/_build
 public/
 web/
+.vscode/settings.json
