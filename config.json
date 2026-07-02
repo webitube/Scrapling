@@ -3,7 +3,9 @@
     "scrapling": {
       "command": "scrapling",
       "args": ["mcp"],
-      "env": {}
+      "env": {
+        "SCRAPLING_INLINE_MAX_SIZE": "50000"
+      }
     }
   }
 }

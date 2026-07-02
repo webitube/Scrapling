@@ -9,7 +9,7 @@ from mcp.server.fastmcp import FastMCP, Image
 from mcp.types import ImageContent, TextContent
 from pydantic import BaseModel, Field
 
-from scrapling.core.shell import Convertor, INLINE_MAX_SIZE
+from scrapling.core.shell import Convertor, _get_inline_max_size
 from scrapling.engines.toolbelt.custom import Response as _ScraplingResponse
 from scrapling.engines.static import ImpersonateType
 from scrapling.fetchers import (
@@ -145,13 +145,14 @@ def _translate_response(
     else:
         # Default behavior: check size threshold, fallback to file if too large
         content_bytes = raw_content.encode("utf-8")
-        if len(content_bytes) > INLINE_MAX_SIZE:
+        max_size = _get_inline_max_size()
+        if len(content_bytes) > max_size:
             fd, filepath = make_temp_file(suffix=".md", prefix="scrapling_content_")
             try:
                 os.write(fd, content_bytes)
             finally:
                 os.close(fd)
-            response_content = [f"Content exceeds inline size limit ({INLINE_MAX_SIZE} bytes). Written to: {filepath}"]
+            response_content = [f"Content exceeds inline size limit ({max_size} bytes). Written to: {filepath}"]
         else:
             response_content = content_parts
 

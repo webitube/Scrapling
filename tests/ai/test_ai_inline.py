@@ -11,9 +11,8 @@ from scrapling.core.ai import (
     ScraplingMCPServer,
     ResponseModel,
     _translate_response,
-    INLINE_MAX_SIZE,
 )
-from scrapling.core.shell import Convertor
+from scrapling.core.shell import Convertor, INLINE_MAX_SIZE, _get_inline_max_size
 
 
 class TestTranslateResponseInline:
@@ -361,3 +360,62 @@ class TestBulkToolsReturnInline:
                 assert "# First Page" in result
                 assert "# Second Page" in result
                 assert "\n" in result
+
+
+class TestDynamicInlineMaxSize:
+    """Test that _get_inline_max_size dynamically reads from environment"""
+
+    @pytest.fixture
+    def mock_page(self):
+        """Create a mock page response"""
+        mock = MagicMock()
+        mock.status = 200
+        mock.url = "http://example.com"
+        return mock
+
+    def test_get_inline_max_size_reads_env(self):
+        """Test that _get_inline_max_size respects SCRAPLING_INLINE_MAX_SIZE env var"""
+        with patch.dict(os.environ, {"SCRAPLING_INLINE_MAX_SIZE": "99999"}):
+            assert _get_inline_max_size() == 99999
+
+    def test_get_inline_max_size_default(self):
+        """Test that _get_inline_max_size returns default when env var is unset"""
+        with patch.dict(os.environ, {}, clear=False) as env:
+            env.pop("SCRAPLING_INLINE_MAX_SIZE", None)
+            assert _get_inline_max_size() == 10240
+
+    def test_translate_response_uses_dynamic_size(self, mock_page):
+        """Test that _translate_response respects dynamic INLINE_MAX_SIZE"""
+        # Set a very small limit so even small content triggers fallback
+        with patch.dict(os.environ, {"SCRAPLING_INLINE_MAX_SIZE": "10"}):
+            with patch.object(Convertor, '_extract_content') as mock_extract:
+                mock_extract.return_value = iter(["# Small Content", ""])
+                result = _translate_response(
+                    mock_page,
+                    extraction_type="markdown",
+                    css_selector=None,
+                    main_content_only=True,
+                    return_inline=False,
+                    write_raw_file=False,
+                )
+                # Should fallback to file because content exceeds 10 bytes
+                assert "exceeds inline size limit" in result.content[0].lower()
+                assert "10 bytes" in result.content[0]
+
+    def test_translate_response_respects_large_dynamic_size(self, mock_page):
+        """Test that _translate_response respects a large dynamic INLINE_MAX_SIZE"""
+        with patch.dict(os.environ, {"SCRAPLING_INLINE_MAX_SIZE": "999999"}):
+            medium_content = "# Medium\n" + "x" * 20000
+            with patch.object(Convertor, '_extract_content') as mock_extract:
+                mock_extract.return_value = iter([medium_content, ""])
+                result = _translate_response(
+                    mock_page,
+                    extraction_type="markdown",
+                    css_selector=None,
+                    main_content_only=True,
+                    return_inline=False,
+                    write_raw_file=False,
+                )
+                # Should NOT fallback to file because content is under 999999 bytes
+                assert "exceeds inline size limit" not in result.content[0].lower()
+                assert medium_content in result.content[0]
