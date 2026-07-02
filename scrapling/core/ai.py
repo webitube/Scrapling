@@ -74,6 +74,33 @@ class _SessionEntry:
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
+def _get_raw_content(
+    page: _ScraplingResponse,
+    extraction_type: extraction_types,
+    css_selector: Optional[str],
+    main_content_only: bool,
+) -> str:
+    """Extract raw content from a response page.
+
+    :param page: The response page to extract content from.
+    :param extraction_type: The type of content to extract (markdown, html, text).
+    :param css_selector: Optional CSS selector to extract specific content.
+    :param main_content_only: Whether to extract only the main content of the page.
+    :return: The extracted raw content as a string.
+    """
+    content_parts = list(
+        Convertor._extract_content(
+            page,
+            css_selector=css_selector,
+            extraction_type=extraction_type,
+            main_content_only=main_content_only,
+            return_inline=False,
+            write_raw_file=False,
+        )
+    )
+    return "".join(content_parts)
+
+
 def _translate_response(
     page: _ScraplingResponse,
     extraction_type: extraction_types,
@@ -95,17 +122,8 @@ def _translate_response(
         File extensions: .md for markdown, .txt for text, .html for html.
     :note: If both return_inline and write_raw_file are True, return_inline takes precedence.
     """
-    content_parts = list(
-        Convertor._extract_content(
-            page,
-            css_selector=css_selector,
-            extraction_type=extraction_type,
-            main_content_only=main_content_only,
-            return_inline=return_inline,
-            write_raw_file=write_raw_file,
-        )
-    )
-    raw_content = "".join(content_parts)
+    raw_content = _get_raw_content(page, extraction_type, css_selector, main_content_only)
+    content_parts = [raw_content]
     response_content: List[str]
 
     # Handle return_inline mode — always inline, no size limit
@@ -450,9 +468,10 @@ class ScraplingMCPServer:
             verify=verify,
             http3=http3,
             stealthy_headers=stealthy_headers,
-            return_inline=return_inline,
+            return_inline=False,
             write_raw_file=write_raw_file,
         )
+        # bulk_get returns List[ResponseModel] when return_inline=False
         return results[0]
 
     @staticmethod
@@ -478,7 +497,7 @@ class ScraplingMCPServer:
         stealthy_headers: Optional[bool] = True,
         return_inline: bool = False,
         write_raw_file: bool = False,
-    ) -> List[ResponseModel]:
+    ) -> Union[List[ResponseModel], str]:
         """Make GET HTTP request to a group of URLs and for each URL, return a structured output of the result.
         Note: This is only suitable for low-mid protection levels. For high-protection levels or websites that require JS loading, use the other tools directly.
         Note: If the `css_selector` resolves to more than one element, all the elements will be returned.
@@ -536,7 +555,12 @@ class ScraplingMCPServer:
                 for url in urls
             ]
             responses = await gather(*tasks)
-            return [_translate_response(page, extraction_type, css_selector, main_content_only, return_inline, write_raw_file) for page in responses]
+
+        if return_inline:
+            contents = [_get_raw_content(page, extraction_type, css_selector, main_content_only) for page in responses]
+            return "\n".join(contents)
+
+        return [_translate_response(page, extraction_type, css_selector, main_content_only, return_inline, write_raw_file) for page in responses]
 
     async def fetch(
         self,
@@ -621,9 +645,10 @@ class ScraplingMCPServer:
             network_idle=network_idle,
             wait_selector_state=wait_selector_state,
             session_id=session_id,
-            return_inline=return_inline,
+            return_inline=False,
             write_raw_file=write_raw_file,
         )
+        # bulk_fetch returns List[ResponseModel] when return_inline=False
         return results[0]
 
     async def bulk_fetch(
@@ -651,7 +676,7 @@ class ScraplingMCPServer:
         session_id: Optional[str] = None,
         return_inline: bool = False,
         write_raw_file: bool = False,
-    ) -> List[ResponseModel]:
+    ) -> Union[List[ResponseModel], str]:
         """Use playwright to open a browser, then fetch a group of URLs at the same time, and for each page return a structured output of the result.
         Note: This is only suitable for low-mid protection levels.
         Note: If the `css_selector` resolves to more than one element, all the elements will be returned.
@@ -728,6 +753,10 @@ class ScraplingMCPServer:
             ) as session:
                 tasks = [session.fetch(url) for url in urls]
                 responses = await gather(*tasks)
+
+        if return_inline:
+            contents = [_get_raw_content(page, extraction_type, css_selector, main_content_only) for page in responses]
+            return "\n".join(contents)
 
         return [_translate_response(page, extraction_type, css_selector, main_content_only, return_inline, write_raw_file) for page in responses]
 
@@ -829,9 +858,10 @@ class ScraplingMCPServer:
             solve_cloudflare=solve_cloudflare,
             additional_args=additional_args,
             session_id=session_id,
-            return_inline=return_inline,
+            return_inline=False,
             write_raw_file=write_raw_file,
         )
+        # bulk_stealthy_fetch returns List[ResponseModel] when return_inline=False
         return results[0]
 
     async def bulk_stealthy_fetch(
@@ -864,7 +894,7 @@ class ScraplingMCPServer:
         session_id: Optional[str] = None,
         return_inline: bool = False,
         write_raw_file: bool = False,
-    ) -> List[ResponseModel]:
+    ) -> Union[List[ResponseModel], str]:
         """Use the stealthy fetcher to fetch a group of URLs at the same time, and for each page return a structured output of the result.
         Note: This is the only suitable fetcher for high protection levels.
         Note: If the `css_selector` resolves to more than one element, all the elements will be returned.
@@ -951,6 +981,10 @@ class ScraplingMCPServer:
             ) as session:
                 tasks = [session.fetch(url) for url in urls]
                 responses = await gather(*tasks)
+
+        if return_inline:
+            contents = [_get_raw_content(page, extraction_type, css_selector, main_content_only) for page in responses]
+            return "\n".join(contents)
 
         return [_translate_response(page, extraction_type, css_selector, main_content_only, return_inline, write_raw_file) for page in responses]
 
